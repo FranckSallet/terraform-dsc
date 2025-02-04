@@ -1,4 +1,4 @@
-module github.com/fsallet/windows-dsc
+module github.com/FranckSallet/windows-dsc
 
 go 1.21.3
 

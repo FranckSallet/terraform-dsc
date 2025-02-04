@@ -9,13 +9,13 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
+// WindowsFeature définit la ressource Terraform
 func WindowsFeature() *schema.Resource {
 	return &schema.Resource{
 		CreateContext: WindowsFeatureCreate,
 		ReadContext:   WindowsFeatureRead,
 		UpdateContext: WindowsFeatureUpdate,
 		DeleteContext: WindowsFeatureDelete,
-
 		Schema: map[string]*schema.Schema{
 			"name": {
 				Type:     schema.TypeString,
@@ -35,23 +35,16 @@ func WindowsFeature() *schema.Resource {
 				},
 			},
 			"include_all_sub_features": {
-				Type:     schema.TypeBool,
-				Optional: true,
-				Default:  false,
+				Type:        schema.TypeBool,
+				Optional:    true,
+				Default:     false,
+				Description: "Si true, toutes les sous-fonctionnalités seront installées. Si false, seules les sous-fonctionnalités spécifiées dans 'sub_features' seront installées.",
 			},
-			"server_address": {
-				Type:     schema.TypeString,
-				Required: true,
-				ForceNew: true, // L'adresse du serveur ne peut pas être modifiée après la création
-			},
-			"ssh_username": {
-				Type:     schema.TypeString,
-				Required: true,
-			},
-			"ssh_password": {
-				Type:      schema.TypeString,
-				Required:  true,
-				Sensitive: true,
+			"sub_features": {
+				Type:        schema.TypeList,
+				Optional:    true,
+				Elem:        &schema.Schema{Type: schema.TypeString},
+				Description: "Liste des sous-fonctionnalités à installer. Ignoré si 'include_all_sub_features' est true.",
 			},
 		},
 	}
@@ -59,12 +52,14 @@ func WindowsFeature() *schema.Resource {
 
 // Fonction pour créer une ressource
 func WindowsFeatureCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+	// Récupère les paramètres du provider
+	providerConfig := meta.(map[string]string)
+	serverAddress := providerConfig["server_address"]
+	sshUsername := providerConfig["ssh_username"]
+	sshPassword := providerConfig["ssh_password"]
+
 	// Connexion SSH
-	sshClient, err := NewSSHClient(
-		d.Get("server_address").(string),
-		d.Get("ssh_username").(string),
-		d.Get("ssh_password").(string),
-	)
+	sshClient, err := NewSSHClient(serverAddress, sshUsername, sshPassword)
 	if err != nil {
 		return diag.FromErr(fmt.Errorf("échec de la connexion SSH : %v", err))
 	}
@@ -79,6 +74,13 @@ func WindowsFeatureCreate(ctx context.Context, d *schema.ResourceData, meta inte
 		return diag.FromErr(fmt.Errorf("la fonctionnalité '%s' n'existe pas", d.Get("name").(string)))
 	}
 
+	// Récupérer les sous-fonctionnalités spécifiées
+	subFeatures := d.Get("sub_features").([]interface{})
+	subFeaturesList := make([]string, len(subFeatures))
+	for i, v := range subFeatures {
+		subFeaturesList[i] = v.(string)
+	}
+
 	// Script PowerShell pour appliquer DSC
 	script := fmt.Sprintf(`
         Configuration ConfigureFeature {
@@ -88,12 +90,25 @@ func WindowsFeatureCreate(ctx context.Context, d *schema.ResourceData, meta inte
                     Name                 = "%s"
                     Ensure               = "%s"
                     IncludeAllSubFeature = %t
+    `, d.Get("name").(string), d.Get("name").(string), d.Get("ensure").(string), d.Get("include_all_sub_features").(bool))
+
+	// Ajouter les sous-fonctionnalités spécifiées si 'include_all_sub_features' est false
+	if len(subFeaturesList) > 0 && !d.Get("include_all_sub_features").(bool) {
+		script += "SubFeatures = @("
+		for _, subFeature := range subFeaturesList {
+			script += fmt.Sprintf("\"%s\", ", subFeature)
+		}
+		script = script[:len(script)-2] // Supprimer la dernière virgule et l'espace
+		script += ")\n"
+	}
+
+	script += `
                 }
             }
         }
         ConfigureFeature
         Start-DscConfiguration -Path .\ConfigureFeature -Wait -Verbose -Force
-    `, d.Get("name").(string), d.Get("name").(string), d.Get("ensure").(string), d.Get("include_all_sub_features").(bool))
+    `
 
 	// Exécution du script
 	_, err = sshClient.RunCommand("powershell -Command \"" + script + "\"")
@@ -109,12 +124,14 @@ func WindowsFeatureCreate(ctx context.Context, d *schema.ResourceData, meta inte
 
 // Fonction pour lire l'état d'une ressource
 func WindowsFeatureRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+	// Récupère les paramètres du provider
+	providerConfig := meta.(map[string]string)
+	serverAddress := providerConfig["server_address"]
+	sshUsername := providerConfig["ssh_username"]
+	sshPassword := providerConfig["ssh_password"]
+
 	// Connexion SSH
-	sshClient, err := NewSSHClient(
-		d.Get("server_address").(string),
-		d.Get("ssh_username").(string),
-		d.Get("ssh_password").(string),
-	)
+	sshClient, err := NewSSHClient(serverAddress, sshUsername, sshPassword)
 	if err != nil {
 		return diag.FromErr(fmt.Errorf("échec de la connexion SSH : %v", err))
 	}
@@ -138,8 +155,8 @@ func WindowsFeatureRead(ctx context.Context, d *schema.ResourceData, meta interf
 
 // Fonction pour mettre à jour une ressource
 func WindowsFeatureUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	// Si le nom ou l'adresse du serveur change, recréer la ressource
-	if d.HasChange("name") || d.HasChange("server_address") {
+	// Si le nom ou les sous-fonctionnalités changent, recréer la ressource
+	if d.HasChange("name") || d.HasChange("sub_features") || d.HasChange("include_all_sub_features") {
 		return WindowsFeatureCreate(ctx, d, meta)
 	}
 
@@ -149,12 +166,14 @@ func WindowsFeatureUpdate(ctx context.Context, d *schema.ResourceData, meta inte
 
 // Fonction pour supprimer une ressource
 func WindowsFeatureDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
+	// Récupère les paramètres du provider
+	providerConfig := meta.(map[string]string)
+	serverAddress := providerConfig["server_address"]
+	sshUsername := providerConfig["ssh_username"]
+	sshPassword := providerConfig["ssh_password"]
+
 	// Connexion SSH
-	sshClient, err := NewSSHClient(
-		d.Get("server_address").(string),
-		d.Get("ssh_username").(string),
-		d.Get("ssh_password").(string),
-	)
+	sshClient, err := NewSSHClient(serverAddress, sshUsername, sshPassword)
 	if err != nil {
 		return diag.FromErr(fmt.Errorf("échec de la connexion SSH : %v", err))
 	}

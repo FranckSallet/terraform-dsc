@@ -1,4 +1,4 @@
-module github.com/tonorganisation/terraform-provider-windowsdsc
+module github.com/fsallet/windows-dsc
 
 go 1.21.3
 

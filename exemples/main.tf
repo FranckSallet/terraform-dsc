@@ -1,21 +1,20 @@
 terraform {
   required_providers {
     windows-dsc = {
-      source  = "local/FranckSallet/windows-dsc"
-      version = "1.0.0"
+      source = "local/FranckSallet/windows-dsc"
     }
   }
 }
 
 provider "windows-dsc" {
-  server_address = "192.168.1.100" # Adresse IP ou nom d'hôte du serveur Windows
-  ssh_username   = "admin"         # Nom d'utilisateur SSH
-  ssh_password   = "password"      # Mot de passe SSH
+  server_address       = "172.18.190.4"
+  ssh_username         = "adminlocalecritel"
+  ssh_private_key_path = "~/.ssh/id_rsa"
 }
 
 resource "windows-dsc_windowsfeature" "iis" {
-  name                    = "Web-Server"
-  ensure                  = "Present"
-  include_all_sub_features = false # Désactiver l'installation de toutes les sous-fonctionnalités
-  sub_features            = ["Web-Common-Http", "Web-Default-Doc"] # Sous-fonctionnalités spécifiques
+  name                     = "Web-Server"
+  ensure                   = "Present"
+  include_all_sub_features = false                                  # Désactiver l'installation de toutes les sous-fonctionnalités
+  sub_features             = ["Web-Common-Http", "Web-Default-Doc"] # Sous-fonctionnalités spécifiques
 }

@@ -9,7 +9,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
-// WindowsFeature définit la ressource Terraform
 func WindowsFeature() *schema.Resource {
 	return &schema.Resource{
 		CreateContext: WindowsFeatureCreate,
@@ -17,10 +16,30 @@ func WindowsFeature() *schema.Resource {
 		UpdateContext: WindowsFeatureUpdate,
 		DeleteContext: WindowsFeatureDelete,
 		Schema: map[string]*schema.Schema{
+			"server_address": {
+				Type:        schema.TypeString,
+				Required:    true,
+				Description: "Adresse IP ou nom d'hôte du serveur Windows",
+			},
+			"ssh_username": {
+				Type:        schema.TypeString,
+				Required:    true,
+				Description: "Nom d'utilisateur pour la connexion SSH",
+			},
+			"ssh_password": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				Description: "Mot de passe pour la connexion SSH (ignoré si ssh_private_key_path est fourni)",
+			},
+			"ssh_private_key_path": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				Description: "Chemin vers la clé privée SSH (prioritaire sur ssh_password)",
+			},
 			"name": {
 				Type:     schema.TypeString,
 				Required: true,
-				ForceNew: true, // Le nom ne peut pas être modifié après la création
+				ForceNew: true,
 			},
 			"ensure": {
 				Type:     schema.TypeString,
@@ -50,23 +69,18 @@ func WindowsFeature() *schema.Resource {
 	}
 }
 
-// Fonction pour créer une ressource
 func WindowsFeatureCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	// Récupère les paramètres du provider
-	providerConfig := meta.(map[string]string)
-	serverAddress := providerConfig["server_address"]
-	sshUsername := providerConfig["ssh_username"]
-	sshPassword := providerConfig["ssh_password"]
-	sshPrivateKeyPath := providerConfig["ssh_private_key_path"]
+	serverAddress := d.Get("server_address").(string)
+	sshUsername := d.Get("ssh_username").(string)
+	sshPassword := d.Get("ssh_password").(string)
+	sshPrivateKeyPath := d.Get("ssh_private_key_path").(string)
 
-	// Connexion SSH
 	sshClient, err := NewSSHClient(serverAddress, sshUsername, sshPassword, sshPrivateKeyPath)
 	if err != nil {
 		return diag.FromErr(fmt.Errorf("échec de la connexion SSH : %v", err))
 	}
 	defer sshClient.Close()
 
-	// Vérifier si la fonctionnalité existe
 	output, err := sshClient.RunCommand("powershell -Command \"Get-WindowsFeature -Name " + d.Get("name").(string) + "\"")
 	if err != nil {
 		return diag.FromErr(fmt.Errorf("échec de la vérification de la fonctionnalité : %v", err))
@@ -75,14 +89,12 @@ func WindowsFeatureCreate(ctx context.Context, d *schema.ResourceData, meta inte
 		return diag.FromErr(fmt.Errorf("la fonctionnalité '%s' n'existe pas", d.Get("name").(string)))
 	}
 
-	// Récupérer les sous-fonctionnalités spécifiées
 	subFeatures := d.Get("sub_features").([]interface{})
 	subFeaturesList := make([]string, len(subFeatures))
 	for i, v := range subFeatures {
 		subFeaturesList[i] = v.(string)
 	}
 
-	// Script PowerShell pour appliquer DSC
 	script := fmt.Sprintf(`
         Configuration ConfigureFeature {
             Import-DscResource -ModuleName PSDesiredStateConfiguration
@@ -93,13 +105,12 @@ func WindowsFeatureCreate(ctx context.Context, d *schema.ResourceData, meta inte
                     IncludeAllSubFeature = %t
     `, d.Get("name").(string), d.Get("name").(string), d.Get("ensure").(string), d.Get("include_all_sub_features").(bool))
 
-	// Ajouter les sous-fonctionnalités spécifiées si 'include_all_sub_features' est false
 	if len(subFeaturesList) > 0 && !d.Get("include_all_sub_features").(bool) {
 		script += "SubFeatures = @("
 		for _, subFeature := range subFeaturesList {
 			script += fmt.Sprintf("\"%s\", ", subFeature)
 		}
-		script = script[:len(script)-2] // Supprimer la dernière virgule et l'espace
+		script = script[:len(script)-2]
 		script += ")\n"
 	}
 
@@ -111,41 +122,33 @@ func WindowsFeatureCreate(ctx context.Context, d *schema.ResourceData, meta inte
         Start-DscConfiguration -Path .\ConfigureFeature -Wait -Verbose -Force
     `
 
-	// Exécution du script
 	_, err = sshClient.RunCommand("powershell -Command \"" + script + "\"")
 	if err != nil {
 		return diag.FromErr(fmt.Errorf("échec de l'exécution du script PowerShell : %v", err))
 	}
 
-	// Définition de l'ID de la ressource
-	d.SetId(d.Get("name").(string))
+	d.SetId(d.Get("name").(string) + "@" + serverAddress)
 
 	return WindowsFeatureRead(ctx, d, meta)
 }
 
-// Fonction pour lire l'état d'une ressource
 func WindowsFeatureRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	// Récupère les paramètres du provider
-	providerConfig := meta.(map[string]string)
-	serverAddress := providerConfig["server_address"]
-	sshUsername := providerConfig["ssh_username"]
-	sshPassword := providerConfig["ssh_password"]
-	sshPrivateKeyPath := providerConfig["ssh_private_key_path"]
+	serverAddress := d.Get("server_address").(string)
+	sshUsername := d.Get("ssh_username").(string)
+	sshPassword := d.Get("ssh_password").(string)
+	sshPrivateKeyPath := d.Get("ssh_private_key_path").(string)
 
-	// Connexion SSH
 	sshClient, err := NewSSHClient(serverAddress, sshUsername, sshPassword, sshPrivateKeyPath)
 	if err != nil {
 		return diag.FromErr(fmt.Errorf("échec de la connexion SSH : %v", err))
 	}
 	defer sshClient.Close()
 
-	// Vérification de l'état de la fonctionnalité
 	output, err := sshClient.RunCommand("powershell -Command \"Get-WindowsFeature -Name " + d.Get("name").(string) + " | Select-Object -Property Installed\"")
 	if err != nil {
 		return diag.FromErr(fmt.Errorf("échec de la vérification de l'état de la fonctionnalité : %v", err))
 	}
 
-	// Analyse de la sortie
 	if strings.Contains(output, "True") {
 		d.Set("ensure", "Present")
 	} else {
@@ -155,34 +158,26 @@ func WindowsFeatureRead(ctx context.Context, d *schema.ResourceData, meta interf
 	return nil
 }
 
-// Fonction pour mettre à jour une ressource
 func WindowsFeatureUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	// Si le nom ou les sous-fonctionnalités changent, recréer la ressource
 	if d.HasChange("name") || d.HasChange("sub_features") || d.HasChange("include_all_sub_features") {
 		return WindowsFeatureCreate(ctx, d, meta)
 	}
 
-	// Sinon, appliquer la mise à jour via DSC
 	return WindowsFeatureCreate(ctx, d, meta)
 }
 
-// Fonction pour supprimer une ressource
 func WindowsFeatureDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	// Récupère les paramètres du provider
-	providerConfig := meta.(map[string]string)
-	serverAddress := providerConfig["server_address"]
-	sshUsername := providerConfig["ssh_username"]
-	sshPassword := providerConfig["ssh_password"]
-	sshPrivateKeyPath := providerConfig["ssh_private_key_path"]
+	serverAddress := d.Get("server_address").(string)
+	sshUsername := d.Get("ssh_username").(string)
+	sshPassword := d.Get("ssh_password").(string)
+	sshPrivateKeyPath := d.Get("ssh_private_key_path").(string)
 
-	// Connexion SSH
 	sshClient, err := NewSSHClient(serverAddress, sshUsername, sshPassword, sshPrivateKeyPath)
 	if err != nil {
 		return diag.FromErr(fmt.Errorf("échec de la connexion SSH : %v", err))
 	}
 	defer sshClient.Close()
 
-	// Script PowerShell pour supprimer la fonctionnalité
 	script := fmt.Sprintf(`
         Configuration RemoveFeature {
             Import-DscResource -ModuleName PSDesiredStateConfiguration
@@ -197,13 +192,11 @@ func WindowsFeatureDelete(ctx context.Context, d *schema.ResourceData, meta inte
         Start-DscConfiguration -Path .\RemoveFeature -Wait -Verbose -Force
     `, d.Get("name").(string), d.Get("name").(string))
 
-	// Exécution du script
 	_, err = sshClient.RunCommand("powershell -Command \"" + script + "\"")
 	if err != nil {
 		return diag.FromErr(fmt.Errorf("échec de la suppression de la fonctionnalité : %v", err))
 	}
 
-	// Suppression de l'ID de la ressource
 	d.SetId("")
 
 	return nil

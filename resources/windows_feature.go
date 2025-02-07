@@ -3,6 +3,7 @@ package resources
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
@@ -39,19 +40,7 @@ func WindowsFeature() *schema.Resource {
 			"name": {
 				Type:     schema.TypeString,
 				Required: true,
-				ForceNew: true,
-			},
-			"ensure": {
-				Type:     schema.TypeString,
-				Optional: true,
-				Default:  "Present",
-				ValidateFunc: func(val interface{}, key string) (warns []string, errs []error) {
-					v := val.(string)
-					if v != "Present" && v != "Absent" {
-						errs = append(errs, fmt.Errorf("%s doit être 'Present' ou 'Absent'", key))
-					}
-					return
-				},
+				ForceNew: true, // Le nom ne peut pas être modifié après la création
 			},
 			"include_all_sub_features": {
 				Type:        schema.TypeBool,
@@ -95,15 +84,16 @@ func WindowsFeatureCreate(ctx context.Context, d *schema.ResourceData, meta inte
 		subFeaturesList[i] = v.(string)
 	}
 
+	// Le paramètre "ensure" est supprimé, car il est implicite dans Terraform
 	script := fmt.Sprintf(`
         Configuration ConfigureFeature {
             Import-DscResource -ModuleName PSDesiredStateConfiguration
             Node "localhost" {
                 WindowsFeature %s {
                     Name                 = "%s"
-                    Ensure               = "%s"
+                    Ensure               = "Present" // Toujours "Present" car la ressource est déclarée
                     IncludeAllSubFeature = %t
-    `, d.Get("name").(string), d.Get("name").(string), d.Get("ensure").(string), d.Get("include_all_sub_features").(bool))
+    `, d.Get("name").(string), d.Get("name").(string), d.Get("include_all_sub_features").(bool))
 
 	if len(subFeaturesList) > 0 && !d.Get("include_all_sub_features").(bool) {
 		script += "SubFeatures = @("
@@ -144,15 +134,17 @@ func WindowsFeatureRead(ctx context.Context, d *schema.ResourceData, meta interf
 	}
 	defer sshClient.Close()
 
+	// Exécuter la commande pour vérifier l'état de la fonctionnalité
 	output, err := sshClient.RunCommand("powershell -Command \"Get-WindowsFeature -Name " + d.Get("name").(string) + " | Select-Object -Property Installed\"")
 	if err != nil {
 		return diag.FromErr(fmt.Errorf("échec de la vérification de l'état de la fonctionnalité : %v", err))
 	}
 
+	// Vérifier si la fonctionnalité est installée et logger le résultat
 	if strings.Contains(output, "True") {
-		d.Set("ensure", "Present")
+		log.Printf("La fonctionnalité '%s' est installée sur le serveur %s\n", d.Get("name").(string), serverAddress)
 	} else {
-		d.Set("ensure", "Absent")
+		log.Printf("La fonctionnalité '%s' n'est pas installée sur le serveur %s\n", d.Get("name").(string), serverAddress)
 	}
 
 	return nil
@@ -184,7 +176,7 @@ func WindowsFeatureDelete(ctx context.Context, d *schema.ResourceData, meta inte
             Node "localhost" {
                 WindowsFeature %s {
                     Name   = "%s"
-                    Ensure = "Absent"
+                    Ensure = "Absent" // Toujours "Absent" lors de la suppression
                 }
             }
         }

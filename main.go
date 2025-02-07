@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	"github.com/FranckSallet/terraform-dsc/resources" // Assure-toi que le chemin d'importation est correct
+	"github.com/FranckSallet/windows-dsc/resources"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/plugin"

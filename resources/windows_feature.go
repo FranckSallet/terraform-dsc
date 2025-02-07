@@ -57,9 +57,10 @@ func WindowsFeatureCreate(ctx context.Context, d *schema.ResourceData, meta inte
 	serverAddress := providerConfig["server_address"]
 	sshUsername := providerConfig["ssh_username"]
 	sshPassword := providerConfig["ssh_password"]
+	sshPrivateKeyPath := providerConfig["ssh_private_key_path"]
 
 	// Connexion SSH
-	sshClient, err := NewSSHClient(serverAddress, sshUsername, sshPassword)
+	sshClient, err := NewSSHClient(serverAddress, sshUsername, sshPassword, sshPrivateKeyPath)
 	if err != nil {
 		return diag.FromErr(fmt.Errorf("échec de la connexion SSH : %v", err))
 	}
@@ -129,9 +130,10 @@ func WindowsFeatureRead(ctx context.Context, d *schema.ResourceData, meta interf
 	serverAddress := providerConfig["server_address"]
 	sshUsername := providerConfig["ssh_username"]
 	sshPassword := providerConfig["ssh_password"]
+	sshPrivateKeyPath := providerConfig["ssh_private_key_path"]
 
 	// Connexion SSH
-	sshClient, err := NewSSHClient(serverAddress, sshUsername, sshPassword)
+	sshClient, err := NewSSHClient(serverAddress, sshUsername, sshPassword, sshPrivateKeyPath)
 	if err != nil {
 		return diag.FromErr(fmt.Errorf("échec de la connexion SSH : %v", err))
 	}
@@ -171,9 +173,10 @@ func WindowsFeatureDelete(ctx context.Context, d *schema.ResourceData, meta inte
 	serverAddress := providerConfig["server_address"]
 	sshUsername := providerConfig["ssh_username"]
 	sshPassword := providerConfig["ssh_password"]
+	sshPrivateKeyPath := providerConfig["ssh_private_key_path"]
 
 	// Connexion SSH
-	sshClient, err := NewSSHClient(serverAddress, sshUsername, sshPassword)
+	sshClient, err := NewSSHClient(serverAddress, sshUsername, sshPassword, sshPrivateKeyPath)
 	if err != nil {
 		return diag.FromErr(fmt.Errorf("échec de la connexion SSH : %v", err))
 	}

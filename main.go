@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	"github.com/FranckSallet/windows-dsc/resources"
+	"github.com/FranckSallet/terraform-dsc/resources" // Assure-toi que le chemin d'importation est correct
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/plugin"
@@ -24,13 +24,17 @@ func Provider() *schema.Provider {
 			},
 			"ssh_password": {
 				Type:        schema.TypeString,
-				Required:    true,
-				Sensitive:   true,
-				Description: "Mot de passe pour la connexion SSH",
+				Optional:    true,
+				Description: "Mot de passe pour la connexion SSH (ignoré si ssh_private_key_path est fourni)",
+			},
+			"ssh_private_key_path": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				Description: "Chemin vers la clé privée SSH (prioritaire sur ssh_password)",
 			},
 		},
 		ResourcesMap: map[string]*schema.Resource{
-			"windows-dsc_windowsfeature": resources.WindowsFeature(), // Nom de la ressource
+			"terraform-dsc_windowsfeature": resources.WindowsFeature(),
 		},
 		ConfigureContextFunc: providerConfigure, // Fonction pour configurer le provider
 	}
@@ -41,12 +45,14 @@ func providerConfigure(ctx context.Context, d *schema.ResourceData) (interface{}
 	serverAddress := d.Get("server_address").(string)
 	sshUsername := d.Get("ssh_username").(string)
 	sshPassword := d.Get("ssh_password").(string)
+	sshPrivateKeyPath := d.Get("ssh_private_key_path").(string)
 
 	// Retourne les paramètres du provider pour qu'ils soient utilisés dans les ressources
 	return map[string]string{
-		"server_address": serverAddress,
-		"ssh_username":   sshUsername,
-		"ssh_password":   sshPassword,
+		"server_address":       serverAddress,
+		"ssh_username":         sshUsername,
+		"ssh_password":         sshPassword,
+		"ssh_private_key_path": sshPrivateKeyPath,
 	}, nil
 }
 
